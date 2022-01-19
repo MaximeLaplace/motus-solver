@@ -1,5 +1,6 @@
 from functools import cmp_to_key
 
+from src.console_utils import clear_console
 from src.inputs import input_result, input_word, proceed
 from src.letters import LETTERS, find_positions
 from src.scoring import word_score
@@ -8,9 +9,8 @@ from src.scoring import word_score
 class WordSolver:
     def __init__(self, length: int, first_letter: str):
         self.length = length
-
-        self.word = "*" * self.length
         self.possible_words = []
+        self.finished = False
 
         self.letters_info = {
             letter: {
@@ -29,16 +29,14 @@ class WordSolver:
             "number": -1,
         }
 
-        self.turn = 0
-
         with open("assets/dico.txt") as dico:
             for line in dico:
                 if line[0] == first_letter and len(line) == self.length + 1:
                     self.possible_words.append(line[:-1])
 
-        self.filter_possible_words()
+        self._filter_possible_words()
 
-    def contains_absent_letter(self, word):
+    def _contains_absent_letter(self, word):
         absent_letters = [
             letter
             for letter, info in self.letters_info.items()
@@ -46,13 +44,13 @@ class WordSolver:
         ]
         return any([letter in word for letter in absent_letters])
 
-    def contains_all_present_letters(self, word):
+    def _contains_all_present_letters(self, word):
         present_letters = [
             letter for letter, info in self.letters_info.items() if info["present"] == 1
         ]
         return all([letter in word for letter in present_letters])
 
-    def contains_placed_letters(self, word):
+    def _contains_placed_letters(self, word):
         positioned_letters = [
             letter
             for letter in LETTERS
@@ -65,13 +63,13 @@ class WordSolver:
                 return False
         return True
 
-    def contains_letters_at_wrong_position(self, word):
+    def _contains_letters_at_wrong_position(self, word):
         for index, letter in enumerate(word):
             if index in self.letters_info[letter]["not_positioned_at"]:
                 return True
         return False
 
-    def contains_correct_number_of_letter(self, word):
+    def _contains_correct_number_of_letter(self, word):
         quantified_letters = [
             letter for letter in LETTERS if self.letters_info[letter]["number"] != -1
         ]
@@ -80,34 +78,29 @@ class WordSolver:
                 return False
         return True
 
-    def filter_possible_words(self):
+    def _filter_possible_words(self):
         self.possible_words = [
             word
             for word in self.possible_words
-            if self.contains_all_present_letters(word)
-            and not self.contains_absent_letter(word)
-            and self.contains_placed_letters(word)
-            and not self.contains_letters_at_wrong_position(word)
-            and self.contains_correct_number_of_letter(word)
+            if self._contains_all_present_letters(word)
+            and not self._contains_absent_letter(word)
+            and self._contains_placed_letters(word)
+            and not self._contains_letters_at_wrong_position(word)
+            and self._contains_correct_number_of_letter(word)
         ]
         self.possible_words = sorted(
             self.possible_words,
-            key=cmp_to_key(
-                lambda x, y: word_score(y, self.turn) - word_score(x, self.turn)
-            ),
+            key=cmp_to_key(lambda x, y: word_score(y) - word_score(x)),
         )
 
-    def get_best_words(self):
-        score = word_score(self.possible_words[0], self.turn)
-        i = 1
-        while (
-            i < len(self.possible_words)
-            and word_score(self.possible_words[i], self.turn) == score
-        ):
-            i += 1
-        return self.possible_words[:i]
+    def _get_best_words(self):
+        best_score = word_score(self.possible_words[0])
+        for index, score in enumerate(map(word_score, self.possible_words)):
+            if score < best_score:
+                return self.possible_words[:index]
+        return self.possible_words
 
-    def process_trial(self, word, result):
+    def _process_trial(self, word, result):
 
         # process exact number of letters if possible
         letters = list(set(word))
@@ -146,29 +139,12 @@ class WordSolver:
                 list(set(self.letters_info[letter]["not_positioned_at"]))
             )
 
-    def pick_word(self):
-        if len(self.possible_words) == 0:
-            print("Aucun mot trouvé...")
-            return True
-        elif len(self.possible_words) == 1:
-            print("Le mot est : ", self.possible_words[0])
-            return True
+        self._filter_possible_words()
 
-        best_words = self.get_best_words()
+        if len(self.possible_words) in (0, 1):
+            self.finished = True
 
-        if len(best_words) > 1:
-            print("Les meilleurs mots à jouer sont :")
-            print("\n".join(best_words), "\n")
-            played_word = input_word(best_words, self.length)
-
-        elif len(best_words) == 1:
-            print("Le meilleur mot à jouer est : ", best_words[0])
-            played_word = (
-                input_word([], self.length)
-                if not proceed("Voulez-vous jouer ce mot ?")
-                else best_words[0]
-            )
-
+    def _input_result(self, played_word: str):
         print(
             "\n",
             "0 = pas présent\n",
@@ -178,17 +154,42 @@ class WordSolver:
 
         result = input_result(self.length)
 
-        self.process_trial(played_word, result)
+        return self._process_trial(played_word, result)
 
-        self.filter_possible_words()
-        print()
-        l = len(self.possible_words)
-        pluriel = "s" if l > 1 else ""
-        print(f"Encore {l} mot{pluriel} possible{pluriel}.")
+    def _pick_word(self):
+        if len(self.possible_words) == 0 or len(self.possible_words) == 1:
+            return True
 
-        if l <= 10:
-            print("Mots possibles : ", ", ".join(self.possible_words))
-        print()
+        best_words = self._get_best_words()
 
-        self.turn += 1
-        return False
+        if len(best_words) > 1:
+            print("Les meilleurs mots à jouer sont :", ", ".join(best_words), "\n")
+            played_word = input_word(best_words, self.length)
+
+        elif len(best_words) == 1:
+            print("Le meilleur mot à jouer est : ", best_words[0], "\n")
+            played_word = (
+                input_word([], self.length)
+                if not proceed("Voulez-vous jouer ce mot ?")
+                else best_words[0]
+            )
+
+        self._input_result(played_word)
+
+    def solve(self):
+        while not self.finished:
+            clear_console()
+
+            l = len(self.possible_words)
+            plural = "s" if l > 1 else ""
+            print(f"Encore {l} mot{plural} possible{plural}.")
+
+            if l <= 10:
+                print(f"Mots possibles : ", ", ".join(self.possible_words))
+            print()
+            self._pick_word()
+
+        if len(self.possible_words) == 0:
+            print("Aucun mot trouvé...")
+        else:
+            print("Le mot est : ", self.possible_words[0])

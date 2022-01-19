@@ -2,4 +2,4 @@ play:
 	python3 main.py
 
 prettier:
-	black main.py src/
+	black src/ main.py
